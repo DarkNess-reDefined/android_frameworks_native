@@ -594,16 +594,30 @@ static bool verifyKernelTraceFuncs(const char* funcs)
         return false;
     }
 
-    char buf[4097];
-    ssize_t n = read(fd, buf, 4096);
-    close(fd);
-    if (n == -1) {
-        fprintf(stderr, "error reading %s: %s (%d)\n", k_ftraceFilterPath,
-            strerror(errno), errno);
-        return false;
+    // read back the filter
+    ssize_t n = 0;
+    ssize_t len = 0;
+    char *r;
+    char *buf = NULL;
+    do {
+        len += n;
+        r = (char *) realloc(buf, len + 4096);
+        if (r == NULL)
+            break;
+        buf = r;
+    } while ( (n = read(fd, (void *)(buf + len), 4095)) > 0 );
+
+    if ( ( n == -1 ) || ( r == NULL ) ) {
+            fprintf(stderr, "error reading %s: %s (%d)\n", k_ftraceFilterPath,
+                strerror(errno), errno);
+            close(fd);
+            free(buf);
+            return false;
     }
 
-    buf[n] = '\0';
+    buf[len] = '\0';
+    close(fd);
+
     String8 funcList = String8::format("\n%s", buf);
 
     // Make sure that every function listed in funcs is in the list we just
@@ -623,8 +637,8 @@ static bool verifyKernelTraceFuncs(const char* funcs)
         }
         func = strtok(NULL, ",");
     }
+    free(buf);
     free(myFuncs);
-
     return ok;
 }
 
@@ -1158,7 +1172,7 @@ int main(int argc, char **argv)
             fflush(stdout);
             int outFd = STDOUT_FILENO;
             if (g_outputFile) {
-                outFd = open(g_outputFile, O_WRONLY | O_CREAT);
+                outFd = open(g_outputFile, O_WRONLY | O_CREAT, 0644);
             }
             if (outFd == -1) {
                 printf("Failed to open '%s', err=%d", g_outputFile, errno);
